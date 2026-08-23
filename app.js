@@ -192,6 +192,59 @@ $("approveBtn").addEventListener("click", () => {
 
   activeIndex = null;
 
+  render();$("csvInput").addEventListener("change", async (event) => {
+
+  const file = event.target.files[0];
+
+  if (!file) return;
+
+  const text = await file.text();
+
+  const lines = text.trim().split(/\r?\n/);
+
+  if (lines.length < 2) {
+
+    alert("CSV file has no invoice rows.");
+
+    return;
+
+  }
+
+  const headers = lines[0].split(",").map(x => x.trim());
+
+  const required = ["customer", "email", "invoice", "due_date", "amount"];
+
+  if (!required.every(h => headers.includes(h))) {
+
+    alert("CSV must include: customer, email, invoice, due_date, amount");
+
+    return;
+
+  }
+
+  invoices = lines.slice(1).filter(Boolean).map(line => {
+
+    const values = line.split(",");
+
+    const obj = {};
+
+    headers.forEach((h, i) => {
+
+      obj[h] = values[i]?.trim() || "";
+
+    });
+
+    obj.amount = Number(String(obj.amount).replace(/[$,]/g, "")) || 0;
+
+    obj.status = "Overdue";
+
+    return obj;
+
+  });
+
   render();
 
 });
+
+});
+
