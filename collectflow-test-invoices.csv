@@ -1,0 +1,5 @@
+customer,email,invoice,due_date,amount
+Alpha Design,billing@alphadesign.example,INV-2001,2026-06-20,3200
+Green Market,accounts@greenmarket.example,INV-2002,2026-07-10,1450
+Ocean Tech,finance@oceantech.example,INV-2003,2026-07-28,5800
+City Works,ap@cityworks.example,INV-2004,2026-08-08,900
