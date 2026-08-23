@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CollectFlow</title>
+<style>
+*{box-sizing:border-box}
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f6f8fb}
+body{margin:0}
+.top{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:24px 5vw;background:#fff;border-bottom:1px solid #e6eaf0;position:sticky;top:0;z-index:5}
+.top h1{margin:0;font-size:30px}.top p{margin:4px 0 0;color:#697386}
+.wrap{width:min(1120px,92vw);margin:26px auto 60px}
+.card,.stat{background:#fff;border:1px solid #e5eaf1;border-radius:16px;box-shadow:0 8px 24px rgba(20,32,60,.03)}
+.hero{padding:22px;display:flex;justify-content:space-between;gap:20px;align-items:center}
+.hero h2,.panel h2{margin:0}.hero p{color:#687385}
+button,.upload{border:0;border-radius:10px;padding:11px 15px;background:#172033;color:#fff;font-weight:700;cursor:pointer}
+.secondary{background:#edf1f6;color:#172033}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}
+.stat{padding:18px}.stat span{display:block;color:#687385;font-size:13px}.stat strong{font-size:25px;display:block;margin-top:7px}
+.panel{overflow:hidden}.panel-head{padding:20px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.panel-head p{margin:5px 0 0;color:#687385}
+.table{overflow:auto}
+table{width:100%;border-collapse:collapse;min-width:980px}
+th,td{text-align:left;padding:14px 16px;border-top:1px solid #edf0f4;font-size:14px}
+th{font-size:12px;color:#687385;background:#fbfcfe;text-transform:uppercase;letter-spacing:.03em}
+.badge{display:inline-block;padding:6px 9px;border-radius:999px;font-size:12px;font-weight:800}
+.high{background:#fee7e7;color:#9b2323}.medium{background:#fff2d2;color:#7d5700}.low{background:#e7f3ec;color:#1c6840}
+.status{background:#eef2f7;color:#46546a}
+.action{white-space:nowrap}
+dialog{border:0;border-radius:18px;width:min(650px,92vw);padding:0;box-shadow:0 25px 80px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(8,14,28,.45)}
+.dlg{padding:22px}.dlg h3{margin:0}.meta{color:#687385;margin:6px 0 0}
+textarea{width:100%;margin-top:12px;padding:14px;border:1px solid #d6dce6;border-radius:12px;font:inherit;line-height:1.45;resize:vertical}
+.actions{display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#172033;color:#fff;padding:10px 14px;border-radius:10px;display:none;z-index:20}
+@media(max-width:800px){
+ .stats{grid-template-columns:repeat(2,1fr)}
+ .hero{flex-direction:column;align-items:flex-start}
+ .top h1{font-size:26px}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div><h1>CollectFlow</h1><p>AI-powered invoice collection copilot</p></div>
+  <button id="demo" class="secondary">Load demo data</button>
+</header>
+
+<main class="wrap">
+  <section class="card hero">
+    <div><h2>Import overdue invoices</h2><p>CSV columns: customer,email,invoice,due_date,amount</p></div>
+    <label class="upload">Upload CSV<input id="file" type="file" accept=".csv" hidden></label>
+  </section>
+
+  <section class="stats">
+    <div class="stat"><span>Total outstanding</span><strong id="total">$0</strong></div>
+    <div class="stat"><span>30+ days overdue</span><strong id="o30">$0</strong></div>
+    <div class="stat"><span>High priority</span><strong id="high">$0</strong></div>
+    <div class="stat"><span>Recovered</span><strong id="rec">$0</strong></div>
+  </section>
+
+  <section class="card panel">
+    <div class="panel-head">
+      <div><h2>Collection queue</h2><p>Open any invoice to generate the next follow-up.</p></div>
+    </div>
+    <div class="table">
+      <table>
+        <thead>
+          <tr><th>Customer</th><th>Invoice</th><th>Amount</th><th>Days overdue</th><th>Priority</th><th>Status</th><th>Next action</th></tr>
+        </thead>
+        <tbody id="body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <div class="dlg">
+    <h3 id="dt"></h3>
+    <p id="dm" class="meta"></p>
+    <textarea id="msg" rows="11"></textarea>
+    <div class="actions">
+      <button id="close" class="secondary">Close</button>
+      <button id="copy" class="secondary">Copy message</button>
+      <button id="approve">Approve follow-up</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" class="toast">Copied</div>
+
+<script>
+let invoices=[],active=null,recovered=0;
+const today=new Date("2026-08-23T00:00:00");
+const demo=[
+{customer:"Northline Studio",email:"accounts@northline.example",invoice:"INV-1042",due_date:"2026-07-05",amount:4200,status:"Waiting"},
+{customer:"BrightPeak Media",email:"finance@brightpeak.example",invoice:"INV-1088",due_date:"2026-07-26",amount:1850,status:"Waiting"},
+{customer:"Oak & Pixel",email:"hello@oakpixel.example",invoice:"INV-1017",due_date:"2026-06-10",amount:7600,status:"Waiting"},
+{customer:"Luma Works",email:"billing@lumaworks.example",invoice:"INV-1103",due_date:"2026-08-02",amount:950,status:"Waiting"}];
+
+const $=x=>document.getElementById(x);
+const money=n=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(n);
+function days(d){return Math.max(0,Math.floor((today-new Date(d+"T00:00:00"))/86400000))}
+function pri(i){let s=days(i.due_date)+Math.min(i.amount/150,40);return s>=55?["High","high"]:s>=30?["Medium","medium"]:["Low","low"]}
+function action(i){
+ let d=days(i.due_date);
+ if(i.status==="Approved")return"Approved";
+ return d>=45?"Final escalation":d>=30?"Firm reminder":d>=14?"Direct reminder":"Friendly reminder"
+}
+function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+
+function render(){
+ invoices.sort((a,b)=>({High:3,Medium:2,Low:1}[pri(b)[0]]-{High:3,Medium:2,Low:1}[pri(a)[0]])||days(b.due_date)-days(a.due_date));
+ $("total").textContent=money(invoices.reduce((s,i)=>s+Number(i.amount),0));
+ $("o30").textContent=money(invoices.filter(i=>days(i.due_date)>=30).reduce((s,i)=>s+Number(i.amount),0));
+ $("high").textContent=money(invoices.filter(i=>pri(i)[0]==="High").reduce((s,i)=>s+Number(i.amount),0));
+ $("rec").textContent=money(recovered);
+
+ $("body").innerHTML=invoices.map((i,n)=>{
+  let p=pri(i);
+  return `<tr>
+   <td><b>${esc(i.customer)}</b><br><small>${esc(i.email)}</small></td>
+   <td>${esc(i.invoice)}</td>
+   <td><b>${money(i.amount)}</b></td>
+   <td>${days(i.due_date)} days</td>
+   <td><span class="badge ${p[1]}">${p[0]}</span></td>
+   <td><span class="badge status">${esc(i.status)}</span></td>
+   <td><button class="action" onclick="openDraft(${n})">${i.status==="Approved"?"View message":"Generate follow-up"}</button></td>
+  </tr>`
+ }).join("")
+}
+
+function draft(i){
+ let d=days(i.due_date),a=money(i.amount);
+ if(d>=45){
+  return `Subject: Final payment follow-up — ${i.invoice}
+
+Hi ${i.customer},
+
+I’m following up regarding invoice ${i.invoice} for ${a}, which is now ${d} days overdue.
+
+Please confirm the payment date or let us know immediately if there is any issue preventing payment. If needed, we can discuss a short payment plan.
+
+We value the relationship and would like to resolve this promptly.
+
+Best regards`;
+ }
+ if(d>=30){
+  return `Subject: Payment follow-up — ${i.invoice}
+
+Hi ${i.customer},
+
+Just following up on invoice ${i.invoice} for ${a}, now ${d} days overdue.
+
+Could you please confirm when payment is scheduled? If there is any issue with the invoice, reply here and we’ll help resolve it quickly.
+
+Thank you.`;
+ }
+ if(d>=14){
+  return `Subject: Quick follow-up — ${i.invoice}
+
+Hi ${i.customer},
+
+A quick follow-up on invoice ${i.invoice} for ${a}, currently ${d} days overdue.
+
+Could you let us know the expected payment date?
+
+Thanks in advance.`;
+ }
+ return `Subject: Friendly reminder — ${i.invoice}
+
+Hi ${i.customer},
+
+Just a friendly reminder that invoice ${i.invoice} for ${a} is now due.
+
+Please let us know if you need the invoice resent or have any questions.
+
+Thank you.`;
+}
+
+window.openDraft=n=>{
+ active=n;
+ let i=invoices[n];
+ $("dt").textContent=action(i);
+ $("dm").textContent=`${i.customer} · ${i.invoice} · ${money(i.amount)} · ${days(i.due_date)} days overdue`;
+ $("msg").value=draft(i);
+ $("dlg").showModal();
+}
+
+$("approve").onclick=()=>{
+ if(active===null)return;
+ invoices[active].status="Approved";
+ $("dlg").close();
+ render();
+}
+
+$("close").onclick=()=>$("dlg").close();
+
+$("copy").onclick=async()=>{
+ try{
+   await navigator.clipboard.writeText($("msg").value);
+ }catch(e){
+   $("msg").select();
+   document.execCommand("copy");
+ }
+ $("toast").style.display="block";
+ setTimeout(()=>$("toast").style.display="none",1400);
+}
+
+$("demo").onclick=()=>{invoices=JSON.parse(JSON.stringify(demo));render()}
+
+$("file").onchange=async e=>{
+ let f=e.target.files[0]; if(!f)return;
+ let t=await f.text(),ls=t.trim().split(/\r?\n/),h=ls[0].split(",").map(x=>x.trim().toLowerCase());
+ invoices=ls.slice(1).map(l=>{
+   let v=l.split(","),o={};h.forEach((x,j)=>o[x]=(v[j]||"").trim());
+   return{customer:o.customer||"Unknown",email:o.email||"",invoice:o.invoice||"",due_date:o.due_date||"",amount:Number((o.amount||"0").replace(/[$,]/g,"")),status:"Waiting"}
+ });
+ render();
+}
+
+render();
+</script>
+</body>
+</html>
