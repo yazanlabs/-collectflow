@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CollectFlow</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f8fb;color:#172033}
+.top{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:22px 5vw;background:#fff;border-bottom:1px solid #e6eaf0;position:sticky;top:0;z-index:5}
+.top h1{margin:0;font-size:30px} .top p{margin:4px 0 0;color:#697386}
+.wrap{width:min(1120px,92vw);margin:26px auto 60px}
+.card,.stat{background:#fff;border:1px solid #e5eaf1;border-radius:16px}
+.hero{padding:22px;display:flex;justify-content:space-between;gap:20px;align-items:center}
+.hero p,.panel-head p{color:#687385}
+button,.upload{border:0;border-radius:10px;padding:11px 15px;background:#172033;color:#fff;font-weight:700;cursor:pointer}
+.secondary{background:#edf1f6;color:#172033} .danger{background:#fff0f0;color:#9b2323}
+.authbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.user{font-size:13px;color:#687385;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}
+.stat{padding:18px} .stat span{display:block;color:#687385;font-size:13px} .stat strong{font-size:25px;display:block;margin-top:7px}
+.panel{overflow:hidden} .panel-head{padding:20px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.table{overflow:auto} table{width:100%;border-collapse:collapse;min-width:980px}
+th,td{text-align:left;padding:14px 16px;border-top:1px solid #edf0f4;font-size:14px}
+th{font-size:12px;color:#687385;background:#fbfcfe;text-transform:uppercase}
+.badge{display:inline-block;padding:6px 9px;border-radius:999px;font-size:12px;font-weight:800}
+.high{background:#fee7e7;color:#9b2323} .medium{background:#fff2d2;color:#7d5700} .low{background:#e7f3ec;color:#1c6840}
+.status{background:#eef2f7;color:#46546a}
+.mobile-list{display:none} .invoice-card{padding:16px;border-top:1px solid #edf0f4;cursor:pointer}
+.invoice-row{display:flex;justify-content:space-between;gap:12px} .invoice-card h3{margin:0 0 4px;font-size:17px}
+.muted{color:#687385;font-size:13px} .invoice-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.empty{padding:28px;text-align:center;color:#687385}
+dialog{border:0;border-radius:18px;width:min(650px,92vw);padding:0;box-shadow:0 25px 80px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(8,14,28,.45)} .dlg{padding:22px}
+input,textarea{width:100%;padding:13px;border:1px solid #d6dce6;border-radius:10px;font:inherit;margin-top:10px}
+.actions{display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+.notice{background:#fff8dc;border:1px solid #f2dea1;padding:12px 14px;border-radius:12px;margin:16px 0;color:#6b5412}
+.hidden{display:none!important}
+@media(max-width:800px){
+ .stats{grid-template-columns:repeat(2,1fr)} .hero{flex-direction:column;align-items:flex-start}
+ .table{display:none} .mobile-list{display:block} .top{align-items:flex-start} .top h1{font-size:26px}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div><h1>CollectFlow</h1><p>AI-powered invoice collection copilot</p></div>
+  <div class="authbar">
+    <span id="userEmail" class="user"></span>
+    <button id="authBtn">Login / Signup</button>
+    <button id="logoutBtn" class="secondary hidden">Logout</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="authNotice" class="notice">Sign in to save and manage your invoices securely.</div>
+
+  <section id="app" class="hidden">
+    <section class="card hero">
+      <div><h2>Import overdue invoices</h2><p>CSV columns: customer,email,invoice,due_date,amount</p></div>
+      <label class="upload">Upload CSV<input id="file" type="file" accept=".csv" hidden></label>
+    </section>
+
+    <section class="stats">
+      <div class="stat"><span>Total outstanding</span><strong id="total">$0</strong></div>
+      <div class="stat"><span>30+ days overdue</span><strong id="o30">$0</strong></div>
+      <div class="stat"><span>High priority</span><strong id="high">$0</strong></div>
+      <div class="stat"><span>Recovered</span><strong id="rec">$0</strong></div>
+    </section>
+
+    <section class="card panel">
+      <div class="panel-head">
+        <div><h2>Collection queue</h2><p>Tap any invoice to open the suggested follow-up.</p></div>
+        <button id="refresh" class="secondary">Refresh</button>
+      </div>
+      <div id="mobileList" class="mobile-list"></div>
+      <div class="table">
+        <table>
+          <thead><tr><th>Customer</th><th>Invoice</th><th>Amount</th><th>Days</th><th>Priority</th><th>Status</th><th>Next action</th></tr></thead>
+          <tbody id="body"></tbody>
+        </table>
+      </div>
+      <div id="empty" class="empty hidden">No invoices yet. Upload a CSV to begin.</div>
+    </section>
+  </section>
+</main>
+
+<dialog id="authDlg">
+  <div class="dlg">
+    <h3>CollectFlow account</h3>
+    <p class="muted">Use email and password to sign up or log in.</p>
+    <input id="authEmail" type="email" placeholder="Email">
+    <input id="authPassword" type="password" placeholder="Password (6+ characters)">
+    <div class="actions">
+      <button id="authClose" class="secondary">Close</button>
+      <button id="signupBtn" class="secondary">Sign up</button>
+      <button id="loginBtn">Log in</button>
+    </div>
+    <p id="authMsg" class="muted"></p>
+  </div>
+</dialog>
+
+<dialog id="dlg">
+  <div class="dlg">
+    <h3 id="dt"></h3>
+    <p id="dm" class="muted"></p>
+    <textarea id="msg" rows="11"></textarea>
+    <div class="actions">
+      <button id="close" class="secondary">Close</button>
+      <button id="copy" class="secondary">Copy message</button>
+      <button id="approve">Approve follow-up</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+const SUPABASE_URL = 'https://vagnvkqguulgyuuxpvb.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_mI7TyPRBOTO0phyRbEp-yA_LzzsfZ0T';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let invoices = [];
+let active = null;
+let currentUser = null;
+const $ = id => document.getElementById(id);
+const money = n => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(Number(n||0));
+function days(d){return Math.max(0,Math.floor((new Date()-new Date(d+"T00:00:00"))/86400000))}
+function pri(i){let s=days(i.due_date)+Math.min(Number(i.amount)/150,40);return s>=55?["High","high"]:s>=30?["Medium","medium"]:["Low","low"]}
+function action(i){let d=days(i.due_date);if(i.status==="Approved")return"Approved";return d>=45?"Final escalation":d>=30?"Firm reminder":d>=14?"Direct reminder":"Friendly reminder"}
+function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+
+async function syncAuth(){
+  const {data:{session}} = await sb.auth.getSession();
+  currentUser = session?.user || null;
+  $("app").classList.toggle("hidden", !currentUser);
+  $("authNotice").classList.toggle("hidden", !!currentUser);
+  $("logoutBtn").classList.toggle("hidden", !currentUser);
+  $("authBtn").classList.toggle("hidden", !!currentUser);
+  $("userEmail").textContent = currentUser?.email || "";
+  if(currentUser) await loadInvoices();
+}
+
+async function loadInvoices(){
+  const {data,error} = await sb.from("invoices").select("*").order("created_at",{ascending:false});
+  if(error){alert("Database error: "+error.message); return;}
+  invoices = data || [];
+  render();
+}
+
+function render(){
+  $("total").textContent=money(invoices.filter(i=>!i.recovered).reduce((s,i)=>s+Number(i.amount),0));
+  $("o30").textContent=money(invoices.filter(i=>!i.recovered&&days(i.due_date)>=30).reduce((s,i)=>s+Number(i.amount),0));
+  $("high").textContent=money(invoices.filter(i=>!i.recovered&&pri(i)[0]==="High").reduce((s,i)=>s+Number(i.amount),0));
+  $("rec").textContent=money(invoices.filter(i=>i.recovered).reduce((s,i)=>s+Number(i.amount),0));
+  $("empty").classList.toggle("hidden", invoices.length>0);
+
+  $("body").innerHTML=invoices.map((i,n)=>{let p=pri(i);return `<tr>
+    <td><b>${esc(i.customer)}</b><br><small>${esc(i.email)}</small></td>
+    <td>${esc(i.invoice)}</td><td><b>${money(i.amount)}</b></td><td>${days(i.due_date)}</td>
+    <td><span class="badge ${p[1]}">${p[0]}</span></td><td><span class="badge status">${esc(i.status)}</span></td>
+    <td><button onclick="openDraft(${n})">${i.status==="Approved"?"View message":"Generate follow-up"}</button></td></tr>`}).join("");
+
+  $("mobileList").innerHTML=invoices.map((i,n)=>{let p=pri(i);return `<div class="invoice-card" onclick="openDraft(${n})">
+    <div class="invoice-row"><div><h3>${esc(i.customer)}</h3><div class="muted">${esc(i.invoice)} · ${days(i.due_date)} days overdue</div></div><strong>${money(i.amount)}</strong></div>
+    <div class="invoice-meta"><span class="badge ${p[1]}">${p[0]}</span><span class="badge status">${esc(i.status)}</span><span class="badge status">${action(i)}</span></div>
+  </div>`}).join("");
+}
+
+function draft(i){
+  let d=days(i.due_date),a=money(i.amount);
+  if(d>=45)return `Subject: Final payment follow-up — ${i.invoice}
+
+Hi ${i.customer},
+
+I’m following up regarding invoice ${i.invoice} for ${a}, which is now ${d} days overdue.
+
+Please confirm the payment date or let us know immediately if there is any issue preventing payment.
+
+Best regards`;
+  if(d>=30)return `Subject: Payment follow-up — ${i.invoice}
+
+Hi ${i.customer},
+
+Just following up on invoice ${i.invoice} for ${a}, now ${d} days overdue.
+
+Could you please confirm when payment is scheduled?
+
+Thank you.`;
+  if(d>=14)return `Subject: Quick follow-up — ${i.invoice}
+
+Hi ${i.customer},
+
+A quick follow-up on invoice ${i.invoice} for ${a}, currently ${d} days overdue.
+
+Could you let us know the expected payment date?
+
+Thanks in advance.`;
+  return `Subject: Friendly reminder — ${i.invoice}
+
+Hi ${i.customer},
+
+Just a friendly reminder that invoice ${i.invoice} for ${a} is now due.
+
+Please let us know if you need the invoice resent or have any questions.
+
+Thank you.`;
+}
+
+window.openDraft=n=>{
+  active=n; const i=invoices[n];
+  $("dt").textContent=action(i);
+  $("dm").textContent=`${i.customer} · ${i.invoice} · ${money(i.amount)} · ${days(i.due_date)} days overdue`;
+  $("msg").value=draft(i);
+  $("dlg").showModal();
+}
+
+$("approve").onclick=async()=>{
+  if(active===null)return;
+  const i=invoices[active];
+  const {error}=await sb.from("invoices").update({status:"Approved"}).eq("id",i.id);
+  if(error) return alert(error.message);
+  $("dlg").close(); await loadInvoices();
+};
+$("close").onclick=()=>$("dlg").close();
+$("copy").onclick=async()=>{try{await navigator.clipboard.writeText($("msg").value)}catch(e){$("msg").select();document.execCommand("copy")}};
+$("refresh").onclick=loadInvoices;
+
+$("file").onchange=async e=>{
+  const f=e.target.files[0]; if(!f||!currentUser)return;
+  const text=await f.text();
+  const lines=text.trim().split(/\r?\n/);
+  const headers=lines[0].split(",").map(x=>x.trim().toLowerCase());
+  const rows=lines.slice(1).map(line=>{
+    const vals=line.split(","),o={};
+    headers.forEach((h,j)=>o[h]=(vals[j]||"").trim());
+    return {
+      user_id:currentUser.id,
+      customer:o.customer||"Unknown",
+      email:o.email||"",
+      invoice:o.invoice||"",
+      due_date:o.due_date||"",
+      amount:Number((o.amount||"0").replace(/[$,]/g,"")),
+      status:"Waiting",
+      recovered:false
+    };
+  }).filter(x=>x.invoice&&x.due_date);
+  const {error}=await sb.from("invoices").insert(rows);
+  if(error)return alert("Upload failed: "+error.message);
+  e.target.value=""; await loadInvoices();
+};
+
+$("authBtn").onclick=()=>$("authDlg").showModal();
+$("authClose").onclick=()=>$("authDlg").close();
+
+$("signupBtn").onclick=async()=>{
+  $("authMsg").textContent="Creating account...";
+  const email=$("authEmail").value.trim(), password=$("authPassword").value;
+  const {data,error}=await sb.auth.signUp({email,password});
+  if(error) return $("authMsg").textContent=error.message;
+  $("authMsg").textContent=data.session ? "Account created." : "Account created. Check your email to confirm, then log in.";
+  if(data.session){$("authDlg").close();await syncAuth();}
+};
+
+$("loginBtn").onclick=async()=>{
+  $("authMsg").textContent="Logging in...";
+  const email=$("authEmail").value.trim(), password=$("authPassword").value;
+  const {error}=await sb.auth.signInWithPassword({email,password});
+  if(error)return $("authMsg").textContent=error.message;
+  $("authDlg").close(); await syncAuth();
+};
+
+$("logoutBtn").onclick=async()=>{await sb.auth.signOut();invoices=[];render();await syncAuth();};
+sb.auth.onAuthStateChange(()=>syncAuth());
+syncAuth();
+</script>
+</body>
+</html>
